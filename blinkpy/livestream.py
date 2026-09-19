@@ -17,9 +17,19 @@ class BlinkLiveStream:
     def __init__(self, camera, response):
         """Initialize BlinkLiveStream."""
         self.camera = camera
-        self.command_id = response["command_id"]
-        self.polling_interval = response["polling_interval"]
+        self.command_id = response.get("command_id", response.get("commandId"))
+        self.polling_interval = response.get(
+            "polling_interval", response.get("pollingIntervalInSeconds", 1)
+        )
         self.target = urllib.parse.urlparse(response["server"])
+        # Walnut/IMMI needs the liveview_token as authToken (see BLINK_RESEARCH.md).
+        # Old code sent 64 null bytes here -> InvalidToken. Support both
+        # snake_case (blinkpy/api) and camelCase (Ghidra LiveViewCommandResponse).
+        self.liveview_token = (
+            response.get("liveview_token")
+            or response.get("liveViewToken")
+            or response.get("token")
+        )
         self.server = None
         self.clients = []
         self.target_reader = None
@@ -74,12 +84,21 @@ class BlinkLiveStream:
         auth_header.extend(static_field)
         # Total packet length: 30 bytes
 
-        # Auth Token field (4-byte length prefix, 64 null bytes for now)
-        # fmt: off
-        token_length = token_field_max_length.to_bytes(4, byteorder="big")
-        _LOGGER.debug("Null token length: %s (%d)", token_length, len(token_length))
-        auth_header.extend(token_length)
-        auth_header.extend([0x00] * token_field_max_length)
+        # Auth Token field (4-byte length prefix, 64-byte token).
+        # Walnut Player.setAuthToken(liveview_token) -> IMMIStreamSource.
+        # Fall back to nulls only for backward compat (old captures).
+        token = getattr(self, "liveview_token", None)
+        if token:
+            _LOGGER.debug("Using liveview_token len=%d", len(token))
+            self.add_auth_header_string_field(
+                auth_header, token, token_field_max_length
+            )
+        else:
+            _LOGGER.debug("No liveview_token, sending null token")
+            token_length = token_field_max_length.to_bytes(4, byteorder="big")
+            _LOGGER.debug("Null token length: %s (%d)", token_length, len(token_length))
+            auth_header.extend(token_length)
+            auth_header.extend([0x00] * token_field_max_length)
         # Total packet length: 98 bytes
 
         # Connection ID field (4-byte length prefix, 16 connection ID bytes)
