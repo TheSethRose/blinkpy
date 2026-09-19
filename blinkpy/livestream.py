@@ -86,19 +86,18 @@ class BlinkLiveStream:
 
         # Auth Token field (4-byte length prefix, 64-byte token).
         # Walnut Player.setAuthToken(liveview_token) -> IMMIStreamSource.
-        # Fall back to nulls only for backward compat (old captures).
-        token = getattr(self, "liveview_token", None)
-        if token:
-            _LOGGER.debug("Using liveview_token len=%d", len(token))
-            self.add_auth_header_string_field(
-                auth_header, token, token_field_max_length
-            )
-        else:
-            _LOGGER.debug("No liveview_token, sending null token")
-            token_length = token_field_max_length.to_bytes(4, byteorder="big")
-            _LOGGER.debug("Null token length: %s (%d)", token_length, len(token_length))
-            auth_header.extend(token_length)
-            auth_header.extend([0x00] * token_field_max_length)
+        # Do not log the token value itself. Fall back to nulls only
+        # for backward compat (old captures had no token).
+        token = getattr(self, "liveview_token", None) or ""
+        token_bytes = token.encode("utf-8")[:token_field_max_length]
+        token_bytes = token_bytes.ljust(token_field_max_length, b"\x00")
+        _LOGGER.debug(
+            "Auth token length: %d (padded to %d)",
+            len(token.encode("utf-8")[:token_field_max_length]),
+            token_field_max_length,
+        )
+        auth_header.extend(len(token_bytes).to_bytes(4, byteorder="big"))
+        auth_header.extend(token_bytes)
         # Total packet length: 98 bytes
 
         # Connection ID field (4-byte length prefix, 16 connection ID bytes)
