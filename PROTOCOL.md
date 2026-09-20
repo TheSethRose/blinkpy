@@ -5,6 +5,15 @@ the official Android app and verified against live camera traffic.
 Covers the cloud API and the IMMI media transport. No firmware,
 trust-store, or onboarding internals are documented here.
 
+## 0. Provenance
+
+Every layout, field size and behavior below was cross-checked two ways:
+decompilation of the official app (session construction, native player
+calls) and live captures from real cameras (handshake bytes, framing,
+keepalive cadence, session lifecycle). Values marked "observed" held
+across multiple sessions and camera families; anything account- or
+firmware-version-dependent is noted inline.
+
 ## 1. Creating a session
 
 ```text
