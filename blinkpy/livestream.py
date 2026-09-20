@@ -48,6 +48,8 @@ class LiveViewSessionInfo:
     is_first_joiner: bool = False
     video_id: int | None = None
     media_id: int | None = None
+    join_available: bool | None = None
+    join_state: str | None = None
     options: dict | None = field(default=None)
 
     @classmethod
@@ -79,7 +81,20 @@ class LiveViewSessionInfo:
             ),
             video_id=_first(response, "video_id", "videoId"),
             media_id=_first(response, "media_id", "mediaId"),
+            join_available=_first(response, "join_available", "joinAvailable"),
+            join_state=_first(response, "join_state", "joinState"),
             options=response.get("options"),
+        )
+
+    @property
+    def joined_existing(self) -> bool:
+        """True when this response joined an existing session.
+
+        Prefer joining over creating duplicates when the server offers
+        it (multi-client flag or an available join we did not start).
+        """
+        return bool(
+            self.is_multi_client or (self.join_available and not self.is_first_joiner)
         )
 
 

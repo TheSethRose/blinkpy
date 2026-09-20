@@ -952,3 +952,32 @@ class TestBlinkLiveStream(IsolatedAsyncioTestCase):
         ):
             chunks = [chunk async for chunk in self.livestream.iter_mpegts()]
         self.assertEqual(chunks, [good_payload])
+
+    def test_joined_existing_defaults_false(self, mock_resp):
+        """Test fresh sessions are not joins."""
+        livestream = BlinkLiveStream(self.camera, {"server": "immis://x/"})
+        self.assertFalse(livestream.info.joined_existing)
+
+    def test_joined_existing_multiclient(self, mock_resp):
+        """Test multi-client sessions count as joins."""
+        response = dict(self.livestream_response, is_multi_client_live_view=True)
+        livestream = BlinkLiveStream(self.camera, response)
+        self.assertTrue(livestream.info.joined_existing)
+
+    def test_joined_existing_available_join(self, mock_resp):
+        """Test available joinable sessions count as joins."""
+        response = dict(
+            self.livestream_response,
+            join_available=True,
+            join_state="available",
+            first_joiner=False,
+            is_multi_client_live_view=False,
+        )
+        livestream = BlinkLiveStream(self.camera, response)
+        self.assertTrue(livestream.info.joined_existing)
+        self.assertEqual(livestream.info.join_state, "available")
+
+    def test_join_fields_parsed(self, mock_resp):
+        """Test join availability fields are preserved."""
+        self.assertTrue(self.livestream.info.join_available)
+        self.assertEqual(self.livestream.info.join_state, "available")
