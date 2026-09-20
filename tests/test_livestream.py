@@ -9,7 +9,7 @@ from blinkpy.blinkpy import Blink
 from blinkpy.helpers.util import BlinkURLHandler
 from blinkpy.sync_module import BlinkSyncModule
 from blinkpy.camera import BlinkCameraMini
-from blinkpy.livestream import BlinkLiveStream
+from blinkpy.livestream import BlinkLiveStream, LiveViewSessionInfo
 
 from .test_api import COMMAND_DONE
 
@@ -850,3 +850,101 @@ class TestBlinkLiveStream(IsolatedAsyncioTestCase):
             self.assertRaises(Exception),
         ):
             await self.livestream.poll()
+
+    def test_session_info_snake_case(self, mock_resp):
+        """Test LiveViewSessionInfo parsing (snake_case)."""
+        info = self.livestream.info
+        self.assertEqual(info.server, self.livestream_response["server"])
+        self.assertEqual(info.liveview_token, "abcdefghijklmnopqrstuv")
+        self.assertEqual(info.command_id, 987654321)
+        self.assertEqual(info.polling_interval, 15)
+        self.assertEqual(info.session_duration, 300)
+        self.assertEqual(info.continue_interval, 300)
+        self.assertEqual(info.continue_warning, 0)
+        self.assertEqual(info.extended_duration, 5400)
+        self.assertFalse(info.is_multi_client)
+        self.assertFalse(info.is_first_joiner)
+
+    def test_session_info_camel_case(self, mock_resp):
+        """Test LiveViewSessionInfo parsing (camelCase)."""
+        response = {
+            "server": "immis://1.2.3.4:443/XYZ?client_id=1",
+            "liveViewToken": "TOKEN123",
+            "commandId": 111,
+            "pollingIntervalInSeconds": 7,
+            "isMultiClientLiveViewSession": True,
+            "isFirstJoiner": True,
+        }
+        info = LiveViewSessionInfo.from_response(response)
+        self.assertEqual(info.liveview_token, "TOKEN123")
+        self.assertEqual(info.command_id, 111)
+        self.assertEqual(info.polling_interval, 7)
+        self.assertTrue(info.is_multi_client)
+        self.assertTrue(info.is_first_joiner)
+
+    def test_session_info_defaults(self, mock_resp):
+        """Test LiveViewSessionInfo with minimal response."""
+        info = LiveViewSessionInfo.from_response({"server": "immis://x/"})
+        self.assertIsNone(info.liveview_token)
+        self.assertIsNone(info.command_id)
+        self.assertEqual(info.polling_interval, 1)
+        self.assertFalse(info.is_multi_client)
+
+    async def test_context_manager_closes(self, mock_resp):
+        """Test async context manager guarantees teardown."""
+        with mock.patch.object(
+            self.livestream, "aclose", new_callable=mock.AsyncMock
+        ) as mock_aclose:
+            async with self.livestream as stream:
+                self.assertIs(stream, self.livestream)
+            mock_aclose.assert_awaited_once()
+
+    @mock.patch("blinkpy.api.request_command_done")
+    async def test_aclose_marks_done(self, mock_done, mock_resp):
+        """Test aclose closes writer and marks command done."""
+        mock_done.return_value = mock.Mock()
+        mock_writer = mock.Mock()
+        mock_writer.is_closing.return_value = False
+        self.livestream.target_writer = mock_writer
+        await self.livestream.aclose()
+        mock_writer.close.assert_called()
+        mock_done.assert_called_once()
+        # Second close is a no-op (no second command/done).
+        await self.livestream.aclose()
+        self.assertEqual(mock_done.call_count, 1)
+
+    async def test_iter_mpegts_yields_payloads(self, mock_resp):
+        """Test iter_mpegts yields video payloads then cleans up."""
+        header = bytes([0x00, 0, 0, 0, 1, 0, 0, 0, 188])
+        payload = bytes([0x47] + [0x00] * 187)
+        mock_reader = mock.Mock()
+        mock_reader.at_eof.side_effect = [False, True]
+        mock_reader.readexactly = mock.AsyncMock(side_effect=[header, payload])
+        self.livestream.target_reader = mock_reader
+        self.livestream.target_writer = mock.Mock()
+        with (
+            mock.patch.object(self.livestream, "auth", new_callable=mock.AsyncMock),
+            mock.patch.object(self.livestream, "aclose", new_callable=mock.AsyncMock),
+        ):
+            chunks = [chunk async for chunk in self.livestream.iter_mpegts()]
+        self.assertEqual(chunks, [payload])
+
+    async def test_iter_mpegts_skips_non_video(self, mock_resp):
+        """Test iter_mpegts skips non-video and bad payloads."""
+        bad_header = bytes([0x05, 0, 0, 0, 1, 0, 0, 0, 188])
+        bad_payload = bytes([0x00] * 188)
+        good_header = bytes([0x00, 0, 0, 0, 2, 0, 0, 0, 188])
+        good_payload = bytes([0x47] + [0x01] * 187)
+        mock_reader = mock.Mock()
+        mock_reader.at_eof.side_effect = [False, False, True]
+        mock_reader.readexactly = mock.AsyncMock(
+            side_effect=[bad_header, bad_payload, good_header, good_payload]
+        )
+        self.livestream.target_reader = mock_reader
+        self.livestream.target_writer = mock.Mock()
+        with (
+            mock.patch.object(self.livestream, "auth", new_callable=mock.AsyncMock),
+            mock.patch.object(self.livestream, "aclose", new_callable=mock.AsyncMock),
+        ):
+            chunks = [chunk async for chunk in self.livestream.iter_mpegts()]
+        self.assertEqual(chunks, [good_payload])
