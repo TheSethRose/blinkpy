@@ -242,16 +242,21 @@ class BlinkLiveStream:
     async def iter_mpegts(self) -> AsyncIterator[bytes]:
         """Yield raw MPEG-TS payloads (no TCP proxy needed).
 
-        Owns the full session: authenticate, stream until cancelled or
-        the relay ends, then mark the command done. Use as::
+        Owns the full session: authenticate, run keepalive/latency and
+        command polling in the background (relays drop silent consumers),
+        stream until cancelled or the relay ends, then mark done::
 
             async with camera.liveview() as stream:
                 async for chunk in stream.iter_mpegts():
                     ...
         """
         await self.auth()
+        sender = asyncio.create_task(self.send())
+        poller = asyncio.create_task(self.poll())
         try:
             while not self.target_reader.at_eof():
+                if poller.done():
+                    break
                 try:
                     msgtype, payload = await self._read_packet()
                 except asyncio.IncompleteReadError:
@@ -263,6 +268,8 @@ class BlinkLiveStream:
                 yield payload
                 await asyncio.sleep(0)
         finally:
+            sender.cancel()
+            poller.cancel()
             await self.aclose()
 
     async def aclose(self):

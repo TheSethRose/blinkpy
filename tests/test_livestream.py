@@ -924,6 +924,8 @@ class TestBlinkLiveStream(IsolatedAsyncioTestCase):
         self.livestream.target_writer = mock.Mock()
         with (
             mock.patch.object(self.livestream, "auth", new_callable=mock.AsyncMock),
+            mock.patch.object(self.livestream, "send", new_callable=mock.AsyncMock),
+            mock.patch.object(self.livestream, "poll", new_callable=mock.AsyncMock),
             mock.patch.object(self.livestream, "aclose", new_callable=mock.AsyncMock),
         ):
             chunks = [chunk async for chunk in self.livestream.iter_mpegts()]
@@ -944,6 +946,8 @@ class TestBlinkLiveStream(IsolatedAsyncioTestCase):
         self.livestream.target_writer = mock.Mock()
         with (
             mock.patch.object(self.livestream, "auth", new_callable=mock.AsyncMock),
+            mock.patch.object(self.livestream, "send", new_callable=mock.AsyncMock),
+            mock.patch.object(self.livestream, "poll", new_callable=mock.AsyncMock),
             mock.patch.object(self.livestream, "aclose", new_callable=mock.AsyncMock),
         ):
             chunks = [chunk async for chunk in self.livestream.iter_mpegts()]
