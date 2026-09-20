@@ -254,9 +254,9 @@ class BlinkLiveStream:
         sender = asyncio.create_task(self.send())
         poller = asyncio.create_task(self.poll())
         try:
+            # NOTE: do not exit when the poller finishes; only EOF (or
+            # cancellation) ends iteration. poll() marks command/done itself.
             while not self.target_reader.at_eof():
-                if poller.done():
-                    break
                 try:
                     msgtype, payload = await self._read_packet()
                 except asyncio.IncompleteReadError:
